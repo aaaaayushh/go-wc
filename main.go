@@ -34,10 +34,40 @@ func lineCounter(r io.Reader) (int, error) {
 	}
 }
 
+func countWords(r io.Reader) (int, error) {
+	buf := make([]byte, 32*1024)
+	count := 0
+	inWord := false
+	for {
+		c, err := r.Read(buf)
+		for i := 0; i < c; i++ {
+			if buf[i] == ' ' || buf[i] == '\n' || buf[i] == '\t' || buf[i] == '\r' {
+				if inWord {
+					count++
+				}
+				inWord = false
+			} else {
+				inWord = true
+			}
+		}
+		if err == io.EOF {
+			if inWord {
+				count++
+			}
+			return count, nil
+		}
+		if err != nil {
+			return count, err
+		}
+	}
+}
+
 func main() {
 	cPtr := flag.Bool("c", true, "display number of bytes of file")
 	lPtr := flag.Bool("l", true, "display number of lines")
-	filePath := os.Args[1]
+	wPtr := flag.Bool("w", true, "display number of words")
+	filePath := os.Args[len(os.Args)-1]
+
 	flag.Parse()
 
 	if *cPtr {
@@ -59,5 +89,16 @@ func main() {
 		}
 		fmt.Println(lines)
 	}
-
+	if *wPtr {
+		file, err := os.Open(filePath)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer file.Close()
+		words, err := countWords(file)
+		if err != nil {
+			log.Fatal(err)
+		}
+		fmt.Println(words)
+	}
 }
