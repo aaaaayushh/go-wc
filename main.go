@@ -9,19 +9,32 @@ import (
 	"os"
 )
 
-func byteCounter(filePath string) {
+func byteCounterForFilePath(filePath string) {
 	fi, err := os.Stat(filePath)
 	if err != nil {
 		log.Fatal(err)
 	}
 	fmt.Println(fi.Size())
 }
-func lineCounter(filePath string) {
-	file, err := os.Open(filePath)
-	if err != nil {
-		log.Fatal(err)
+func byteCounterForReader(reader io.Reader) {
+	buf := make([]byte, 32*1024)
+	totalBytes := 0
+
+	for {
+		n, err := reader.Read(buf)
+		if err != nil && err != io.EOF {
+			log.Fatal(err)
+		}
+		if n == 0 {
+			break
+		}
+		totalBytes += n
 	}
-	defer file.Close()
+
+	fmt.Println(totalBytes)
+}
+
+func lineCounter(file io.Reader) {
 	// initialise an empty buffer to hold the file contents
 	buf := make([]byte, 32*1024)
 	// variable to hold line count
@@ -39,6 +52,11 @@ func lineCounter(filePath string) {
 		switch {
 		case err == io.EOF:
 			fmt.Println(count)
+			// reset file pointer to beginning of file
+			//_, err := file.(io.Seeker).Seek(0, 0)
+			if err != nil && err != io.EOF {
+				log.Fatal(err)
+			}
 			return
 
 		case err != nil:
@@ -48,12 +66,7 @@ func lineCounter(filePath string) {
 	}
 }
 
-func countWords(filePath string) {
-	file, err := os.Open(filePath)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer file.Close()
+func countWords(file io.Reader) {
 	buf := make([]byte, 32*1024)
 	count := 0
 	inWord := false
@@ -82,7 +95,8 @@ func countWords(filePath string) {
 		}
 	}
 }
-func countBytes(filePath string) {
+
+func countCharactersForFilePath(filePath string) {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		log.Fatal(err)
@@ -90,13 +104,31 @@ func countBytes(filePath string) {
 	fileContents := string(data)
 	fmt.Println(len(fileContents))
 }
+func countCharactersForReader(reader io.Reader) {
+	buf := make([]byte, 32*1024)
+	totalChars := 0
+
+	for {
+		n, err := reader.Read(buf)
+		if err != nil && err != io.EOF {
+			log.Fatal(err)
+		}
+		if n == 0 {
+			break
+		}
+		totalChars += len(string(buf[:n]))
+	}
+
+	fmt.Println(totalChars)
+}
 
 func main() {
 	cPtr := flag.Bool("c", false, "display number of bytes of file")
 	lPtr := flag.Bool("l", false, "display number of lines")
 	wPtr := flag.Bool("w", false, "display number of words")
 	mPtr := flag.Bool("m", false, "display number of characters")
-	filePath := os.Args[len(os.Args)-1]
+	filePath := flag.String("path", "", "file path")
+	flag.Parse()
 
 	masterFlag := !*cPtr && !*lPtr && !*wPtr && !*mPtr
 
@@ -104,21 +136,65 @@ func main() {
 		*cPtr = true
 		*lPtr = true
 		*wPtr = true
-		*mPtr = true
 	}
 
-	flag.Parse()
+	var fileReader io.Reader
+	var err error
+	var fileBytes []byte
+
+	if *filePath == "" {
+		fileBytes, err = io.ReadAll(os.Stdin)
+		if err != nil {
+			log.Fatal(err)
+		}
+		fileReader = bytes.NewReader(fileBytes)
+	} else {
+		fileReader, err = os.Open(*filePath)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+	if closer, ok := fileReader.(io.Closer); ok {
+		defer closer.Close()
+	}
 
 	if *cPtr {
-		byteCounter(filePath)
+		if *filePath != "" {
+			byteCounterForFilePath(*filePath)
+		} else {
+			byteCounterForReader(fileReader)
+			fileReader = bytes.NewReader(fileBytes)
+		}
 	}
 	if *lPtr {
-		lineCounter(filePath)
+		lineCounter(fileReader)
+		if *filePath == "" {
+			fileReader = bytes.NewReader(fileBytes)
+		} else {
+			resetFilePointer(fileReader)
+		}
 	}
 	if *wPtr {
-		countWords(filePath)
+		countWords(fileReader)
+		if *filePath == "" {
+			fileReader = bytes.NewReader(fileBytes)
+		} else {
+			resetFilePointer(fileReader)
+		}
 	}
 	if *mPtr {
-		countBytes(filePath)
+		if *filePath != "" {
+			countCharactersForFilePath(*filePath)
+		} else {
+			countCharactersForReader(fileReader)
+			fileReader = bytes.NewReader(fileBytes)
+		}
+	}
+}
+
+func resetFilePointer(file io.Reader) {
+	_, err := file.(io.Seeker).Seek(0, 0)
+	if err != nil {
+		log.Fatal(err)
 	}
 }
